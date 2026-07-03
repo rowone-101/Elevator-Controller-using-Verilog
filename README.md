@@ -26,7 +26,10 @@ Create a new project and add elevator_controller.v as a design source and elevat
 Set elevator_controller_tb as the simulation top module.
 Run Behavioral Simulation.
 Inspect state, current_floor, motor_up, motor_down, and door_open in the waveform viewer.
+
+
 <img width="2350" height="1422" alt="Screenshot 2026-07-03 144508" src="https://github.com/user-attachments/assets/1b4a75cf-f234-474d-810b-874ed32f20a9" />
+
 <img width="2360" height="1358" alt="Screenshot 2026-07-03 144723" src="https://github.com/user-attachments/assets/0d13bcff-cf8c-453a-9db6-5f106bb82cd2" />
 
 
