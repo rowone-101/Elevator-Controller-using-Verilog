@@ -1,0 +1,154 @@
+// =============================================================
+// Elevator Controller (FSM-based) - 4-floor elevator
+// Floors are numbered 0 to 3.
+// floor_request[i] = 1 means floor i has a pending call
+// (this combines both cabin button presses and outside hall
+// call buttons into a single request vector for simplicity).
+// =============================================================
+module elevator_controller #(
+    parameter MOVE_TIME = 4,   
+    parameter DOOR_TIME = 3    
+)(
+    input  wire       clk,
+    input  wire       rst,
+    input  wire [3:0] floor_request,   
+    output reg  [1:0] current_floor,
+    output wire        motor_up,
+    output wire        motor_down,
+    output wire        door_open,
+    output reg  [1:0]  state           
+
+    // ---------------- FSM state encoding ----------------
+    localparam IDLE        = 2'b00,
+               MOVING_UP   = 2'b01,
+               MOVING_DOWN = 2'b10,
+               DOOR_OPEN   = 2'b11;
+
+    reg [1:0] next_state;
+    reg [3:0] pending;                 
+    reg [2:0] move_cnt;                
+    reg [2:0] door_cnt;                
+    // ---------------- Target floor selection ----------------
+    // Simple SCAN-style logic: from the current floor, look for the
+    // nearest pending request above; 
+    reg        have_target;
+    reg [1:0]  target_floor;
+    reg        move_up;
+
+    always @(*) begin
+        have_target  = 1'b0;
+        target_floor = current_floor;
+        move_up      = 1'b0;
+        case (current_floor)
+            2'd0: begin
+                if      (pending[1]) begin target_floor = 2'd1; 
+                else if (pending[2]) begin target_floor = 2'd2; 
+                else if (pending[3]) begin target_floor = 2'd3; 
+            end
+            2'd1: begin
+                if      (pending[2]) begin target_floor = 2'd2;  
+                else if (pending[3]) begin target_floor = 2'd3; 
+                else if (pending[0]) begin target_floor = 2'd0; 
+            end
+            2'd2: begin
+                if      (pending[3]) begin target_floor = 2'd3; 
+                else if (pending[1]) begin target_floor = 2'd1; 
+                else if (pending[0]) begin target_floor = 2'd0;
+            end
+            2'd3: begin
+                if      (pending[2]) begin target_floor = 2'd2; 
+                else if (pending[1]) begin target_floor = 2'd1; 
+                else if (pending[0]) begin target_floor = 2'd0; 
+            end
+        endcase
+    end
+
+    // ---------------- Next-state logic ----------------
+    always @(*) begin
+        next_state = state;
+        case (state)
+            IDLE: begin
+                if (pending[current_floor])
+                    next_state = DOOR_OPEN;          
+                else if (have_target)
+                    next_state = move_up ? MOVING_UP : MOVING_DOWN;
+            end
+
+            MOVING_UP: begin
+                if (move_cnt == MOVE_TIME-1 && (current_floor + 1'b1) == target_floor)
+                    next_state = DOOR_OPEN;
+            end
+
+            MOVING_DOWN: begin
+                if (move_cnt == MOVE_TIME-1 && (current_floor - 1'b1) == target_floor)
+                    next_state = DOOR_OPEN;
+            end
+
+            DOOR_OPEN: begin
+                if (door_cnt == DOOR_TIME-1)
+                    next_state = IDLE;
+            end
+        endcase
+    end
+
+    // ---------------- State / counters / floor register ----------------
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            state         <= IDLE;
+            current_floor <= 2'd0;
+            move_cnt      <= 3'd0;
+            door_cnt      <= 3'd0;
+        end else begin
+            state <= next_state;
+
+            case (state)
+                MOVING_UP: begin
+                    if (move_cnt == MOVE_TIME-1) begin
+                        move_cnt      <= 3'd0;
+                        current_floor <= current_floor + 1'b1;
+                    end else begin
+                        move_cnt <= move_cnt + 1'b1;
+                    end
+                end
+
+                MOVING_DOWN: begin
+                    if (move_cnt == MOVE_TIME-1) begin
+                        move_cnt      <= 3'd0;
+                        current_floor <= current_floor - 1'b1;
+                    end else begin
+                        move_cnt <= move_cnt + 1'b1;
+                    end
+                end
+
+                DOOR_OPEN: begin
+                    if (door_cnt == DOOR_TIME-1)
+                        door_cnt <= 3'd0;
+                    else
+                        door_cnt <= door_cnt + 1'b1;
+                end
+
+                default: begin
+                    move_cnt <= 3'd0;
+                    door_cnt <= 3'd0;
+                end
+            endcase
+        end
+    end
+
+    // ---------------- Request latch / clear ----------------
+    always @(posedge clk or posedge rst) begin
+        if (rst)
+            pending <= 4'b0000;
+        else begin
+            pending <= pending | floor_request;               // latch new calls
+            if (state == DOOR_OPEN && door_cnt == DOOR_TIME-1)
+                pending[current_floor] <= 1'b0;               
+        end
+    end
+
+    // ---------------- Output signals ----------------
+    assign motor_up   = (state == MOVING_UP);
+    assign motor_down = (state == MOVING_DOWN);
+    assign door_open  = (state == DOOR_OPEN);
+
+endmodule
